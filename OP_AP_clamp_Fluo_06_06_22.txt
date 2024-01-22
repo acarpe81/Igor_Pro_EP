@@ -1,0 +1,907 @@
+#pragma rtGlobals=3		// Use modern global access method and strict wave access.
+
+Macro Int_Fluo_OP()
+
+//Author's note:
+
+//Feel free to contact me for further information
+//Dr. Alexander Carpenter, 13th September 2021		carpenter.alexander@gmail.com
+
+
+//Define F0 here - the baseline fluorescence value for the cell
+
+	Variable F0 = 
+
+
+//Renames wave values to sarc, V_Voltage and I_current and opens table
+
+	Rename sarc_Sarc_Const,sarc;
+	Rename V_Vo__ge_Sc,V_voltage;
+	Rename I_Cu__nt_Sc,I_Current;
+	Rename V_480__An__nm_Sc,EpiF;
+
+
+//Changes the wave scaling for sarc and then V-Voltage and I_Current
+
+	Variable sarc_first_value = Time_0(0)
+	Variable V_and_I_and_EpiF_first_value = Time_3(0)
+	Variable sarc_change = time_0(25)-time_0(24)
+	Variable V_and_I_and_EpiF_change = time_3(25)-time_3(24)
+	SetScale/P x sarc_first_value,sarc_change,"", sarc
+	SetScale/P x V_and_I_and_EpiF_first_value,V_and_I_and_EpiF_change,"", V_voltage,I_current,EpiF
+
+
+//Finds last sarc point and deletes 99999 points after this (closing off end of wave)
+
+	Variable last_empty_or_filled_sarc_point = numpnts(sarc) -1
+	Variable last_meaningful_sarc_point_1DP = last_empty_or_filled_sarc_point / 10
+	Variable last_meaningful_sarc_point = floor(last_meaningful_sarc_point_1DP)
+	Variable point_after_last_point = last_meaningful_sarc_point +1
+	DeletePoints point_after_last_point,999999, Time_0,sarc
+
+	Edit Time_0,sarc,Time_3,V_voltage,Time_2,I_Current,Time_5,EpiF
+
+
+//Create a graph with V on left axis, I on right axis and sarc appended on new axis on left
+
+	•Display v_voltage
+	•AppendToGraph/R I_current
+	•AppendToGraph/L=sarc sarc
+
+
+//Definition of variables and empty waves to be filled by analysis
+
+	Variable z = 0
+	
+	WaveStats V_voltage
+	FindLevels /M=0.1 /EDGE=1 v_voltage, -60
+	Make/N=(V_LevelsFound-1)/D ThresholdXs, CL, CL25, CL50, RMP, PK, PK_loc, AMP, thirtyAP, sixtyAP, ninetyAP, thirtyAPLOC, sixtyAPLOC, ninetyAPLOC, APD30, APD60, APD90, dia_sarc, dia_sarc_point, sys_sarc, sys_sarc_point, delta_sarc, sarc_perc_change, dia_EpiF, dia_EpiF_point, sys_EpiF, sys_EpiF_point, delta_EpiF, EpiF_perc_change, Sarc_dif_dia, Sarc_dif_sys, EpiF_dif_dia, EpiF_dif_sys
+	
+	ThresholdXs=W_FindLevels
+	
+	CL(0) = 0
+	CL(V_LevelsFound-2) = 0
+	dia_sarc(0)=0; sys_sarc(0)=0; delta_sarc(0)=0
+	dia_sarc(V_LevelsFound-2)=0; sys_sarc(V_LevelsFound-2)=0; delta_sarc(V_LevelsFound-2)=0
+
+	dia_EpiF(0)=0; sys_EpiF(0)=0; delta_EpiF(0)=0; EpiF_perc_change(0)=0;
+	dia_EpiF(V_LevelsFound-2)=0; sys_EpiF(V_LevelsFound-2)=0; delta_EpiF(V_LevelsFound-2)=0; EpiF_perc_change(V_LevelsFound-2)=0;
+	
+	Edit ThresholdXs
+	AppendToTable CL, CL25, CL50, RMP, PK, PK_LOC, AMP, thirtyAP, sixtyAP, ninetyAP
+	AppendToTable thirtyAPLOC, sixtyAPLOC, ninetyAPLOC
+	AppendToTable APD30, APD60, APD90
+	AppendToTable dia_sarc, sys_sarc, dia_sarc_point, sys_sarc_point, delta_sarc, sarc_perc_change
+	AppendToTable dia_EpiF, sys_EpiF, dia_EpiF_point, sys_EpiF_point, delta_EpiF, EpiF_perc_change, Sarc_dif_dia, Sarc_dif_sys, EpiF_dif_dia, EpiF_dif_sys
+	
+	Duplicate Sarc Sarc_smth
+	AppendToGraph/L=sarc Sarc_smth
+	ModifyGraph rgb(Sarc_smth)=(0,39168,0)
+	Smooth/S=2 15, Sarc_smth
+
+
+//EpiF_smth both smooths the fluorescence trace and converts it to F/F0. F0 defined at top of script.
+
+	Duplicate EpiF EpiF_smth
+	EpiF_smth = EpiF[p] / F0
+	AppendToGraph/L=EpiF EpiF_smth
+	ModifyGraph rgb(EpiF_smth)=(0,39168,0)
+	Smooth/S=2 15, EpiF_smth
+	Smooth 1111, EpiF_smth		//Only if trace very noisy
+
+
+//Create a graph of smoothed sarcomere shortening, smoothed EpiFluorescence and the differentials of both
+
+    Display Sarc_smth vs Time_0
+    ModifyGraph rgb=(0,0,0)
+    Label left "Sarcomere length (microns)";DelayUpdate
+    Label bottom "Time (s)"
+
+    Differentiate Sarc_smth/X=Time_0/D=Sarc_smth_DIF;DelayUpdate            //Produces differential analysis for sarcomere shortening
+    Display Sarc_smth_DIF vs Time_0
+    Label left "dS / dT";DelayUpdate
+    Label bottom "Time (s)"
+
+    Display EpiF_smth vs Time_5
+    ModifyGraph rgb=(0,0,65280)
+    Label left "F/F0";DelayUpdate
+    Label bottom "Time (s)"
+
+    Differentiate EpiF_smth/X=Time_5/D=EpiF_smth_DIF;DelayUpdate            //Produces differential analysis for fluorescence, and smooths it
+    Display EpiF_smth_DIF vs Time_5
+    Label left "dF / dT";DelayUpdate
+    Label bottom "Time (s)"
+    Smooth 1111, EpiF_smth_DIF
+
+
+//Main body of macro with level finding function 
+	
+do
+	CL(z+1) = ThresholdXs(z+1) - ThresholdXs(z) 
+	CL25(z+1) = (ThresholdXs(z+1) - ThresholdXs(z)) * 0.25
+    CL50(z+1) = (ThresholdXs(z+1) - ThresholdXs(z)) * 0.5
+	WaveStats/Q/R=(ThresholdXs(z), ThresholdXs(z)-0.05) V_Voltage
+	RMP(z)=-80
+	FindPeak/Q/R=(ThresholdXs(z),ThresholdXs(z)+0.07) V_Voltage
+	PK(z)=V_PeakVal
+	PK_LOC(z)=V_PeakLoc
+	AMP(z)=PK(z)-RMP(z)
+	thirtyAP(z) = PK(z)-(0.3*AMP(z))
+	sixtyAP(z) = PK(z)-(0.6*AMP(z))
+	ninetyAP(z) = PK(z)-(0.9*AMP(z))
+	FindLevel/Q/R=(PK_LOC(z), PK_LOC(z)+0.5) V_Voltage, thirtyAP(z) //can be adjusted 0.3-0.7 if not found
+	thirtyAPLOC(z) = V_LevelX
+	FindLevel/Q/R=(PK_LOC(z), PK_LOC(z)+0.5) V_Voltage, sixtyAP(z)
+	sixtyAPLOC(z) = V_LevelX
+	FindLevel/Q/R=(PK_LOC(z), PK_LOC(z)+0.5) V_Voltage, ninetyAP(z)
+	ninetyAPLOC(z) = V_LevelX
+	APD30(z) = thirtyAPLOC(z)-PK_LOC(z)
+	APD60(z) = sixtyAPLOC(z)-PK_LOC(z)
+	APD90(z) = ninetyAPLOC(z)-PK_LOC(z)
+		
+
+    //This next bit of code looks for the highest and lowest peaks for diastolic and systolic sarcomere length
+    
+    Wavestats/Q/R=(ThresholdXs(z)-CL25(z+1), ThresholdXs(z)+CL25(z+1)) Sarc_Smth 
+        
+        dia_sarc(z)=V_max
+		dia_sarc_point(z)=x2pnt(sarc_smth,V_maxLoc) 
+
+    Wavestats/Q/R=(ThresholdXs(z), ThresholdXs(z+1)) Sarc_Smth 
+
+        sys_sarc(z)=V_min
+		sys_sarc_point(z)=x2pnt(sarc_smth,V_minLoc)
+    
+	delta_sarc(z)=dia_sarc(z)-sys_sarc(z)
+	sarc_perc_change(z)=(delta_sarc(z)/dia_sarc(z)) *100
+
+    Wavestats/Q/R=(ThresholdXs(z)-CL25(z+1), ThresholdXs(z)+CL25(z+1)) Sarc_smth_DIF      //Finds the peak and minimum values for the differential (rate of change)
+        
+        Sarc_dif_dia(z)=V_max
+
+    Wavestats/Q/R=(ThresholdXs(z), ThresholdXs(z+1)) Sarc_smth_DIF
+
+        Sarc_dif_sys(z)=V_min    
+    
+    Wavestats/Q/R=(ThresholdXs(z)-CL50(z+1), ThresholdXs(z)+CL50(z+1)) EpiF_Smth
+        dia_EpiF(z)=V_min
+		dia_EpiF_point(z)=x2pnt(EpiF_smth,V_minLoc)                 //Locations are exported for subsequent use in curve-fitting
+  
+    Wavestats/Q/R=(ThresholdXs(z), ThresholdXs(z+1)) EpiF_smth
+        sys_EpiF(z)=V_max
+		sys_EpiF_point(z)=x2pnt(EpiF_smth,V_maxLoc)
+
+	delta_EpiF(z)=sys_EpiF(z)-dia_EpiF(z)
+	EpiF_perc_change(z)=(delta_EpiF(z)/dia_EpiF(z)) *100
+
+    Wavestats/Q/R=(ThresholdXs(z)-CL50(z+1), ThresholdXs(z)+CL50(z+1)) EpiF_smth_DIF
+        EpiF_dif_dia(z)=V_min
+        
+    Wavestats/Q/R=(ThresholdXs(z), ThresholdXs(z+1)) EpiF_smth_DIF
+        EpiF_dif_sys(z)=V_max
+		
+    z+=1
+
+while(z<(V_LevelsFound-1))
+
+DeletePoints 78,79, CL,dia_sarc,sys_sarc,dia_epiF,sys_epiF,delta_sarc,sarc_perc_change,delta_EpiF,EpiF_perc_change,Sarc_dif_dia,Sarc_dif_sys,EpiF_dif_dia,EpiF_dif_sys
+
+
+//Creates diary plot of APD90, sarcomere shortening and epifluorescence
+
+Display APD90
+   AppendToGraph/R delta_sarc
+   Legend/C/N=text0/F=0/A=MC
+
+   ModifyGraph rgb(delta_sarc)=(0,0,0)
+   Label left "APD\\B90\\M(s)"
+   Label right "Change in sarcomere length (microns)"
+   Label bottom "Beat number (first 20 are 1Hz train)"
+   Legend/C/N=text0/J/A=RT/X=4.40/Y=10.94
+   AppendToGraph/R=delta_EpiF delta_EpiF
+   ModifyGraph rgb(delta_EpiF)=(0,0,65280)
+   Label right "Red: Change in sarcomere length (microns)\rBlue: Change in fluorescence (delta F/F0)"
+
+
+//AP restitution calculations.
+
+//Calculate last 20 diastolic intervals by subtracting APD90 from CL (use 20 to ensure balance on OP protocol; 2S2L)
+//Works regardless of how many beats total, takes total and works back from there (skips 2 extraneous beats)
+
+Variable NumCLs = numpnts(CL) //The total number of beats
+
+
+//Create a variable for diastolic interval, subtracting APD90 from cycle length, for the last 20 beats (skipping the final 2 beats)
+
+    Make/D/N=20 DI 
+    Variable z_DI=22
+    Variable z_point=0
+	do
+	    DI(Z_point) = CL(NumCLs-Z_DI)-APD90(NumCLs-Z_DI); 
+	    Z_DI-=1
+	    Z_point+=1
+	while(Z_point<20)
+
+
+//Averages the DIs and prints average DI and average APD90
+
+	Variable AvgDI = (DI(0)+DI(1)+DI(2)+DI(3)+DI(4)+DI(5)+DI(6)+DI(7)+DI(8)+DI(9)+DI(10)+DI(11)+DI(12)+DI(13)+DI(14)+DI(15)+DI(16)+DI(17)+DI(18)+DI(19))/20; 
+	Variable TotalAPD90 = (APD90(NumCLs-2))+(APD90(NumCLs-3))+(APD90(NumCLs-4))+(APD90(NumCLs-5))+(APD90(NumCLs-6))+(APD90(NumCLs-7))+(APD90(NumCLs-8))+(APD90(NumCLs-9))+(APD90(NumCLs-10))+(APD90(NumCLs-11))+(APD90(NumCLs-12))+(APD90(NumCLs-13))+(APD90(NumCLs-14))+(APD90(NumCLs-15))+(APD90(NumCLs-16))+(APD90(NumCLs-17))+(APD90(NumCLs-18))+(APD90(NumCLs-19))+(APD90(NumCLs-20))+(APD90(NumCLs-21))
+	Variable AvgAPD90 = TotalAPD90/20
+	Variable TotalCL = (CL(NumCLs-2))+(CL(NumCLs-3))+(CL(NumCLs-4))+(CL(NumCLs-5))+(CL(NumCLs-6))+(CL(NumCLs-7))+(CL(NumCLs-8))+(CL(NumCLs-9))+(CL(NumCLs-10))+(CL(NumCLs-11))+(CL(NumCLs-12))+(CL(NumCLs-13))+(CL(NumCLs-14))+(CL(NumCLs-15))+(CL(NumCLs-16))+(CL(NumCLs-17))+(CL(NumCLs-18))+(CL(NumCLs-19))+(CL(NumCLs-20))+(CL(NumCLs-21))
+	Variable AvgCL = TotalCL/20
+	Variable TotalDeltSarc = (delta_sarc(NumCLs-2))+(delta_sarc(NumCLs-3))+(delta_sarc(NumCLs-4))+(delta_sarc(NumCLs-5))+(delta_sarc(NumCLs-6))+(delta_sarc(NumCLs-7))+(delta_sarc(NumCLs-8))+(delta_sarc(NumCLs-9))+(delta_sarc(NumCLs-10))+(delta_sarc(NumCLs-11))+(delta_sarc(NumCLs-12))+(delta_sarc(NumCLs-13))+(delta_sarc(NumCLs-14))+(delta_sarc(NumCLs-15))+(delta_sarc(NumCLs-16))+(delta_sarc(NumCLs-17))+(delta_sarc(NumCLs-18))+(delta_sarc(NumCLs-19))+(delta_sarc(NumCLs-20))+(delta_sarc(NumCLs-21)); 
+	Variable AvgDeltSarc = TotalDeltSarc/20
+	Variable/G Total_perc_sarc_change = (sarc_perc_change(NumCLs-2))+(sarc_perc_change(NumCLs-3))+(sarc_perc_change(NumCLs-4))+(sarc_perc_change(NumCLs-5))+(sarc_perc_change(NumCLs-6))+(sarc_perc_change(NumCLs-7))+(sarc_perc_change(NumCLs-8))+(sarc_perc_change(NumCLs-9))+(sarc_perc_change(NumCLs-10))+(sarc_perc_change(NumCLs-11))+(sarc_perc_change(NumCLs-12))+(sarc_perc_change(NumCLs-13))+(sarc_perc_change(NumCLs-14))+(sarc_perc_change(NumCLs-15))+(sarc_perc_change(NumCLs-16))+(sarc_perc_change(NumCLs-17))+(sarc_perc_change(NumCLs-18))+(sarc_perc_change(NumCLs-19))+(sarc_perc_change(NumCLs-20))+(sarc_perc_change(NumCLs-21));
+	Variable/G Avg_perc_sarc_change = Total_perc_sarc_change/20 	
+	Variable TotalDeltEpiF = (delta_EpiF(NumCLs-2))+(delta_EpiF(NumCLs-3))+(delta_EpiF(NumCLs-4))+(delta_EpiF(NumCLs-5))+(delta_EpiF(NumCLs-6))+(delta_EpiF(NumCLs-7))+(delta_EpiF(NumCLs-8))+(delta_EpiF(NumCLs-9))+(delta_EpiF(NumCLs-10))+(delta_EpiF(NumCLs-11))+(delta_EpiF(NumCLs-12))+(delta_EpiF(NumCLs-13))+(delta_EpiF(NumCLs-14))+(delta_EpiF(NumCLs-15))+(delta_EpiF(NumCLs-16))+(delta_EpiF(NumCLs-17))+(delta_EpiF(NumCLs-18))+(delta_EpiF(NumCLs-19))+(delta_EpiF(NumCLs-20))+(delta_EpiF(NumCLs-21));
+	Variable AvgDeltEpiF = TotalDeltEpiF/20
+	Variable TotalEpiFPercChange = (EpiF_perc_change(NumCLs-2))+(EpiF_perc_change(NumCLs-3))+(EpiF_perc_change(NumCLs-4))+(EpiF_perc_change(NumCLs-5))+(EpiF_perc_change(NumCLs-6))+(EpiF_perc_change(NumCLs-7))+(EpiF_perc_change(NumCLs-8))+(EpiF_perc_change(NumCLs-9))+(EpiF_perc_change(NumCLs-10))+(EpiF_perc_change(NumCLs-11))+(EpiF_perc_change(NumCLs-12))+(EpiF_perc_change(NumCLs-13))+(EpiF_perc_change(NumCLs-14))+(EpiF_perc_change(NumCLs-15))+(EpiF_perc_change(NumCLs-16))+(EpiF_perc_change(NumCLs-17))+(EpiF_perc_change(NumCLs-18))+(EpiF_perc_change(NumCLs-19))+(EpiF_perc_change(NumCLs-20))+(EpiF_perc_change(NumCLs-21));
+	Variable AvgEpiFPercChange = (TotalEpiFPercChange/20)
+
+
+//Data for Poincare plot for APD90, sarcomere shortening and epifluorescence; creates waves for 20 beat 1Hx train  and subsequent 60 protocol beats (n and n+1 both)
+
+	Variable U = 0
+    make/D/N=20 APD90trainn 	//creating a wave for the 20 beat 1Hx train 
+	make/D/n=20 APD90trainn1 	//and N+1
+	
+    make/D/N=20 Sarctrainn 		//creating a wave for the 20 beat 1Hx train 
+	make/D/n=20 Sarctrainn1 	//and N+1
+    
+    make/D/N=20 EpiFtrainn 		//creating a wave for the 20 beat 1Hx train 
+	make/D/n=20 EpiFtrainn1 	//and N+1
+
+    make/D/N=20 sarcdifdiatrainn 		//creating a wave for the 20 beat 1Hx train 
+	make/D/n=20 sarcdifdiatrainn1   	//and N+1
+    
+    make/D/N=20 sarcdifsystrainn 		//creating a wave for the 20 beat 1Hx train 
+	make/D/n=20 sarcdifsystrainn1   	//and N+1
+    
+    make/D/N=20 EpiFdifdiatrainn 		//creating a wave for the 20 beat 1Hx train 
+	make/D/n=20 EpiFdifdiatrainn1   	//and N+1
+    
+    make/D/N=20 EpiFdifsystrainn 		//creating a wave for the 20 beat 1Hx train 
+	make/D/n=20 EpiFdifsystrainn1   	//and N+1   
+	
+    do
+	
+        APD90trainn(U) = APD90(U)
+	    APD90trainn1(U) = APD90(U+1)
+
+        Sarctrainn(U) = sarc_perc_change(U)
+	    Sarctrainn1(U) = sarc_perc_change(U+1)
+    
+        EpiFtrainn(U) = EpiF_perc_change(U)
+	    EpiFtrainn1(U) = EpiF_perc_change(U+1)
+
+        sarcdifdiatrainn(U) = Sarc_dif_dia(U)
+        sarcdifdiatrainn1(U) = Sarc_dif_dia(U+1)
+
+        sarcdifsystrainn(U) = Sarc_dif_sys(U)
+        sarcdifsystrainn1(U) = Sarc_dif_sys(U+1)
+
+        EpiFdifdiatrainn(U) = EpiF_dif_dia(U)
+        EpiFdifdiatrainn1(U) = EpiF_dif_dia(U+1)
+
+        EpiFdifsystrainn(U) = EpiF_dif_sys(U)
+        EpiFdifsystrainn1(U) = EpiF_dif_sys(U+1)
+	    
+        U+=1
+        
+	while(U<20)
+
+	Variable T = 20  
+
+	    make/D/N=80 APD90n 			//creating a wave for the subsequent 60 beats
+	    make/D/N=80 APD90n1 
+
+        make/D/N=80 Sarcn 			//creating a wave for the subsequent 60 beats
+	    make/D/N=80 Sarcn1 			//and N+1
+	
+        make/D/N=80 EpiFn 			//creating a wave for the subsequent 60 beats
+	    make/D/N=80 EpiFn1 	
+
+        make/D/n=80 Sarc_dif_dia_n
+        make/D/n=80 Sarc_dif_dia_n1
+
+        make/D/n=80 Sarc_dif_sys_n
+        make/D/n=80 Sarc_dif_sys_n1
+
+        make/D/n=80 EpiF_dif_dia_n
+        make/D/n=80 EpiF_dif_dia_n1
+        
+        make/D/n=80 EpiF_dif_sys_n
+        make/D/n=80 EpiF_dif_sys_n1
+	
+    do                                                  //Generates a wave of values (N) alongside their subsequent (N+1) values 
+        APD90n(T) = APD90(T)
+	    APD90n1(T) = APD90(T+1)
+
+	    Sarcn(T) = sarc_perc_change(T)
+	    Sarcn1(T) = sarc_perc_change(T+1)
+	    
+        EpiFn(T) = EpiF_perc_change(T)
+	    EpiFn1(T) = EpiF_perc_change(T+1)
+
+        Sarc_dif_dia_n(T) = Sarc_dif_dia(T)
+        Sarc_dif_dia_n1(T) = Sarc_dif_dia(T+1)
+
+        Sarc_dif_sys_n(T) = Sarc_dif_sys(T)
+        Sarc_dif_sys_n1(T) = Sarc_dif_sys(T+1)
+
+        EpiF_dif_dia_n(T) = EpiF_dif_dia(T)
+        EpiF_dif_dia_n1(T) = EpiF_dif_dia(T+1)
+
+        EpiF_dif_sys_n(T) = EpiF_dif_sys(T)
+        EpiF_dif_sys_n1(T) = EpiF_dif_sys(T+1)
+	    
+        T+=1
+
+	while(T<80)
+
+DeletePoints 0,20, APD90n,APD90n1
+DeletePoints 0,20, Sarcn,Sarcn1
+DeletePoints 0,20, EpiFn,EpiFn1
+DeletePoints 0,20, Sarc_dif_dia_n,Sarc_dif_dia_n1
+DeletePoints 0,20, Sarc_dif_sys_n,Sarc_dif_sys_n1
+DeletePoints 0,20, EpiF_dif_dia_n,EpiF_dif_dia_n1
+DeletePoints 0,20, EpiF_dif_sys_n,EpiF_dif_sys_n1
+
+
+//Calculate beat-to-beat variability of repolarisation
+
+Make/N=20 APD90traindiff 			//Starting with the difference between APD90n+1 - APD90n for the 20 beats 1Hz train
+Variable/G X_train=0
+	do
+	APD90traindiff(x_train) = abs(APD90trainn1(X_train) - APD90trainn(X_train))		//Uses the 'abs' function to create real numbers; same effect as squaring then taking square root of
+	X_train+=1
+	while(X_train<20)
+
+Make/N=60 APD90diff 				//And now for APD90n+1 - APD90n for the 60 beat pacing protocol
+
+
+Variable/G x_sixty=0
+	do
+	APD90diff(x_sixty) = abs(APD90n1(x_sixty) - APD90n(x_sixty))
+	x_sixty+=1
+	while (x_sixty<60)
+
+DeletePoints 58,59, apd90diff
+
+//Generating average data summaries
+
+Duplicate/R=[57,76] dia_sarc, twentybeatdiasarc						//Calculates the average diastolic and systolic sarcomere shortening values for final 20 beats
+Duplicate/R=[57,76] sys_sarc, twentybeatsyssarc	
+Duplicate/R=[57,76] dia_EpiF, twentybeatdiaEpiF						//Calculates the average diastolic and systolic epifluorescence F/F0 values for final 20 beats
+Duplicate/R=[57,76] sys_EpiF, twentybeatsysEpiF
+Duplicate/R=[57,76] Sarc_dif_dia, twentybeatsarcdifdia				//Calculates the average differential values for the final 20 beats
+Duplicate/R=[57,76] Sarc_dif_sys, twentybeatsarcdifsys						
+Duplicate/R=[57,76] EpiF_dif_dia, twentybeatepiFdifdia
+Duplicate/R=[57,76] EpiF_dif_sys, twentybeatepiFdifsys
+
+Variable traindiffsum = sum(APD90traindiff)			//Summates all of the differences from n+1-n (for 20-beat train)
+Variable BVR_train = traindiffsum / (sqrt(2)*20)		//Calculates BVR as per the equation (sum_real_numbers(x+1-x))/(sqrt(2) * nstimuli)
+
+Variable sixty_diff_sum = sum(APD90diff)			//Does same for 60-beat pacing protocol
+Variable BVR_sixty = sixty_diff_sum / (sqrt(2)*58)
+
+Variable avg_dias_sum = sum(twentybeatdiasarc)
+Variable avg_sys_sum = sum(twentybeatsyssarc)
+
+Variable AvgDiasSarc = avg_dias_sum / 20
+Variable AvgSysSarc = avg_sys_sum / 20
+
+Variable avg_dias_EpiF_sum = sum(twentybeatdiaEpiF)
+Variable avg_sys_EpiF_sum = sum(twentybeatsysEpiF)
+
+Variable AvgDiasEpiF = avg_dias_EpiF_sum / 20
+Variable AvgSysEpiF = avg_sys_EpiF_sum / 20
+
+Variable avg_sarc_dif_dia_sum = sum(twentybeatsarcdifdia)
+Variable avg_sarc_dif_sys_sum = sum(twentybeatsarcdifsys)
+Variable avg_EpiF_dif_dia_sum = sum(twentybeatepiFdifdia)
+Variable avg_EpiF_dif_sys_sum = sum(twentybeatepiFdifsys)
+
+Variable Avg_Dif_Sarc_dia = avg_sarc_dif_dia_sum / 20
+Variable Avg_Dif_Sarc_sys = avg_sarc_dif_sys_sum / 20
+Variable Avg_Dif_EpiF_dia = avg_EpiF_dif_dia_sum / 20
+Variable Avg_Dif_EpiF_sys = avg_EpiF_dif_sys_sum / 20
+
+
+print "The average CL (based on the final 20 beats) is",(AvgCL*1000),"ms"
+    make/N=1 avgCL_col
+    avgCL_col(0) = AvgCL*1000
+print "The average DI (based on the final 20 beats) is",(avgDI*1000),"ms"
+    make/N=1 avgDI_col
+    avgDI_col(0) = avgDI*1000
+print "The average APD90 (based on the final 20 beats) is",(AvgAPD90*1000),"ms"
+    make/N=1 avgAPD_col
+    avgAPD_col(0) = AvgAPD90*1000
+print "The average change in sarcomere length (based on the final 20 beats) is",AvgDeltSarc, "microns"
+    make/n=1 AvgDeltSarc_col
+    AvgDeltSarc_col(0) = AvgDeltSarc
+print "The average % change in sarcomere length (based on the final 20 beats) is",(Avg_perc_sarc_change)
+    make/N=1 Avg_perc_sarc_change_col
+    Avg_perc_sarc_change_col(0) = Avg_perc_sarc_change
+Print("The BVR of the 20-beat 1Hz train is"),BVR_train
+    make/N=1 BVR_train_col
+    BVR_train_col(0) = BVR_train
+Print("The BVR of the 60-beat pacing protocol is"),BVR_sixty
+    make/N=1 BVR_sixty_col
+    BVR_sixty_col(0) = BVR_sixty
+Print("The mean diastolic sarcomere length (of the final 20 beats) is"),AvgDiasSarc
+    make/N=1 AvgDiasSarc_col
+    AvgDiasSarc_col(0) = AvgDiasSarc
+Print("The mean systolic sarcomere length (of the final 20 beats) is"),AvgSysSarc
+    make/N=1 AvgSysSarc_col
+    AvgSysSarc_col(0) = AvgSysSarc
+Print("The mean change in Epifluorescence (based on the final 20 beats) is"),AvgDeltEpiF
+    make/N=1 AvgDeltEpiF_col
+    AvgDeltEpiF_col(0) = AvgDeltEpiF
+Print("The average % change in Epifluorescence (based on the final 20 beats) is"),AvgEpiFPercChange
+    make/N=1 AvgEpiFPercChange_col
+    AvgEpiFPercChange_col(0) = AvgEpiFPercChange
+Print("The mean diastolic fluorescence value (of the final 20 beats is"), AvgDiasEpiF
+    make/N=1 AvgDiasEpiF_col
+    AvgDiasEpiF_col(0) = AvgDiasEpiF
+Print("The mean systolic fluorescence value (of the final 20 beats is"), AvgSysEpiF
+    make/N=1 AvgSysEpiF_col
+    AvgSysEpiF_col(0) = AvgSysEpiF
+Print("The average sarcomere differential diastolic value for the final 20 beats is"), Avg_Dif_Sarc_dia
+    make/N=1 Avg_Dif_Sarc_dia_col
+    Avg_Dif_Sarc_dia_col(0) = Avg_Dif_Sarc_dia
+Print("The average sarcomere differential systolic value for the final 20 beats is"), Avg_Dif_Sarc_sys
+    make/N=1 Avg_Dif_Sarc_sys_col
+    Avg_Dif_Sarc_sys_col(0) = Avg_Dif_Sarc_sys
+Print("The average fluorescence differential diastolic value for the final 20 beats is"), Avg_Dif_EpiF_dia
+    make/N=1 Avg_Dif_EpiF_dia_col
+    Avg_Dif_EpiF_dia_col(0) = Avg_Dif_EpiF_dia
+Print("The average fluorescence systolic value for the final 20 beats is"), Avg_Dif_EpiF_sys
+    make/N=1 Avg_Dif_EpiF_sys_col
+    Avg_Dif_EpiF_sys_col(0) = Avg_Dif_EpiF_sys
+
+
+//Create APD90 Poincare plot
+
+Display APD90trainn1 vs APD90trainn
+    AppendToGraph APD90n1 vs APD90n
+    ModifyGraph mode=4,rgb=(0,0,0),marker(APD90trainn1)=19,marker(APD90n1)=8
+    SetAxis/A left;DelayUpdate
+    SetAxis/A bottom
+    Legend/C/N=text0/J/A=RC "\\s(APD90trainn1) 1Hz train (20 beats)\r\\s(APD90n1) Pacing protocol (60 beats)"
+    Label left "APD\\B90\\M(s)\\Bn+1";DelayUpdate
+    Label bottom "APD\\B90\\M(s)\\Bn"
+    TextBox/C/N=text1/A=LT "\\Z16Poincaré plot"
+    DrawLine -0,1,1,-0
+
+//Create Poincare plot for sarcomere shortening % change
+
+Display Sarctrainn1 vs Sarctrainn
+    AppendToGraph Sarcn1 vs Sarcn
+    ModifyGraph mode=4,rgb=(0,0,0),marker(Sarctrainn1)=19,marker(Sarcn1)=8
+    SetAxis/A left;DelayUpdate
+    SetAxis/A bottom
+    Legend/C/N=text0/J/A=RC "\\s(Sarctrainn1) 1Hz train (20 beats)\r\\s(Sarcn1) Pacing protocol (60 beats)"
+    Label left "Sarcomere shortening (%) \\Bn+1";DelayUpdate
+    Label bottom "Sarcomere shortening (%) \\Bn"
+    TextBox/C/N=text1/A=LT "\\Z16Poincaré plot"
+    DrawLine -0,1,1,-0
+
+
+//Create Poincare plot for epifluorescence % change
+
+Display EpiFtrainn1 vs EpiFtrainn
+    AppendToGraph EpiFn1 vs EpiFn
+    ModifyGraph mode=4,rgb=(0,0,0),marker(EpiFtrainn1)=19,marker(EpiFn1)=8
+    SetAxis/A left;DelayUpdate
+    SetAxis/A bottom
+    Legend/C/N=text0/J/A=RC "\\s(EpiFtrainn1) 1Hz train (20 beats)\r\\s(EpiFn1) Pacing protocol (60 beats)"
+    Label left "Change in fluorescence (%) \\Bn+1";DelayUpdate
+    Label bottom "Change in fluorescence (%) \\Bn"
+    TextBox/C/N=text1/A=LT "\\Z16Poincaré plot"
+    DrawLine -0,1,1,-0
+
+
+//Create Poincare plot for sarcomere differential diastolic values
+
+Display sarcdifdiatrainn1 vs sarcdifdiatrainn
+    AppendToGraph Sarc_dif_dia_n1 vs Sarc_dif_dia_n
+    ModifyGraph mode=4,rgb=(0,0,0),marker(sarcdifdiatrainn1)=19,marker(Sarc_dif_dia_n1)=8
+    SetAxis/A left;DelayUpdate
+    SetAxis/A bottom
+    Legend/C/N=text0/J/A=RC "\\s(sarcdifdiatrainn1) 1Hz train (20 beats)\r\\s(Sarc_dif_dia_n1) Pacing protocol (60 beats)"
+    Label left "Sarcomere shortening diastolic dS / dt \\Bn+1";DelayUpdate
+    Label bottom "Sarcomere shortening diastolic dS / dt \\Bn"
+    TextBox/C/N=text1/A=LT "\\Z16Poincaré plot"
+    DrawLine -0,1,1,-0
+
+
+//Create Poincare plot for sarcomere differential systolic values
+
+Display sarcdifsystrainn1 vs sarcdifsystrainn
+    AppendToGraph Sarc_dif_sys_n1 vs Sarc_dif_sys_n
+    ModifyGraph mode=4,rgb=(0,0,0),marker(sarcdifsystrainn1)=19,marker(Sarc_dif_sys_n1)=8
+    SetAxis/A left;DelayUpdate
+    SetAxis/A bottom
+    Legend/C/N=text0/J/A=RC "\\s(sarcdifsystrainn1) 1Hz train (20 beats)\r\\s(Sarc_dif_sys_n1) Pacing protocol (60 beats)"
+    Label left "Sarcomere shortening systolic dS / dt \\Bn+1";DelayUpdate
+    Label bottom "Sarcomere shortening systolic dS / dt \\Bn"
+    TextBox/C/N=text1/A=LT "\\Z16Poincaré plot"
+    DrawLine -0,1,1,-0
+
+
+//Create Poincare plot for epifluorescence differential diastolic values
+
+Display EpiFdifdiatrainn1 vs EpiFdifdiatrainn
+    AppendToGraph EpiF_dif_dia_n1 vs EpiF_dif_dia_n
+    ModifyGraph mode=4,rgb=(0,0,0),marker(EpiFdifdiatrainn1)=19,marker(EpiF_dif_dia_n1)=8
+    SetAxis/A left;DelayUpdate
+    SetAxis/A bottom
+    Legend/C/N=text0/J/A=RC "\\s(EpiFdifdiatrainn1) 1Hz train (20 beats)\r\\s(EpiF_dif_dia_n1) Pacing protocol (60 beats)"
+    Label left "EpiF diastolic dF / dt \\Bn+1";DelayUpdate
+    Label bottom "EpiF diastolic dF / dt \\Bn"
+    TextBox/C/N=text1/A=LT "\\Z16Poincaré plot"
+    DrawLine -0,1,1,-0
+
+
+//Create Poincare plot for epifluorescence differential systolic values
+
+Display EpiFdifsystrainn1 vs EpiFdifsystrainn
+    AppendToGraph EpiF_dif_sys_n1 vs EpiF_dif_sys_n
+    ModifyGraph mode=4,rgb=(0,0,0),marker(EpiFdifsystrainn1)=19,marker(EpiF_dif_sys_n1)=8
+    SetAxis/A left;DelayUpdate
+    SetAxis/A bottom
+    Legend/C/N=text0/J/A=RC "\\s(EpiFdifsystrainn1) 1Hz train (20 beats)\r\\s(EpiF_dif_sys_n1) Pacing protocol (60 beats)"
+    Label left "EpiF systolic dF / dt \\Bn+1";DelayUpdate
+    Label bottom "EpiF systolic dF / dt \\Bn"
+    TextBox/C/N=text1/A=LT "\\Z16Poincaré plot"
+    DrawLine -0,1,1,-0
+
+
+//AP and sarcomere shortening restitution calculations: stratified for OP; long or short (indeed, for all possible states to capture the pacing history in toto; long-short,short-short,short-long, and long-long).
+
+//Calculate last 20 diastolic intervals by subtracting APD90 from CL (use 20 to ensure balance on OP protocol; 2S2L)
+//Works regardless of how many beats: takes totals and works back from there (skips 2 extraneous beats)
+//Separates all beats into 4 possible categories to encompass subtly different states - the immediately preceding DI and the DI before that. Ie for 2S2L (as part of a longer train) it will be thus:
+															//long-short,short-short,short-long,long-long
+
+	Variable Wedge = 0				//Number of beats between final coupled LONG beat and last full beat; ie. if 0.5,0.5,0.2,0.2,0.5,0 then input '3'
+
+	Variable NumCLs_with_wedge = numpnts(CL) - Wedge
+	Variable DI60_long_long = (CL(NumCLs_with_wedge-2)-APD90(NumCLs_with_wedge-2))									//Calculates the DIs
+	Variable DI59_short_long = (CL(NumCLs_with_wedge-3)-APD90(NumCLs_with_wedge-3))
+	Variable DI58_short_short = (CL(NumCLs_with_wedge-4)-APD90(NumCLs_with_wedge-4))
+	Variable DI57_long_short = (CL(NumCLs_with_wedge-5)-APD90(NumCLs_with_wedge-5))
+	Variable DI56_long_long = (CL(NumCLs_with_wedge-6)-APD90(NumCLs_with_wedge-6))
+	Variable DI55_short_long = (CL(NumCLs_with_wedge-7)-APD90(NumCLs_with_wedge-7))
+	Variable DI54_short_short = (CL(NumCLs_with_wedge-8)-APD90(NumCLs_with_wedge-8))
+	Variable DI53_long_short = (CL(NumCLs_with_wedge-9)-APD90(NumCLs_with_wedge-9))
+	Variable DI52_long_long = (CL(NumCLs_with_wedge-10)-APD90(NumCLs_with_wedge-10))
+	Variable DI51_short_long = (CL(NumCLs_with_wedge-11)-APD90(NumCLs_with_wedge-11))
+	Variable DI50_short_short = (CL(NumCLs_with_wedge-12)-APD90(NumCLs_with_wedge-12))
+	Variable DI49_long_short = (CL(NumCLs_with_wedge-13)-APD90(NumCLs_with_wedge-13))
+	Variable DI48_long_long = (CL(NumCLs_with_wedge-14)-APD90(NumCLs_with_wedge-14))
+	Variable DI47_short_long = (CL(NumCLs_with_wedge-15)-APD90(NumCLs_with_wedge-15))
+	Variable DI46_short_short = (CL(NumCLs_with_wedge-16)-APD90(NumCLs_with_wedge-16))
+	Variable DI45_long_short = (CL(NumCLs_with_wedge-17)-APD90(NumCLs_with_wedge-17))
+	Variable DI44_long_long = (CL(NumCLs_with_wedge-18)-APD90(NumCLs_with_wedge-18))
+	Variable DI43_short_long = (CL(NumCLs_with_wedge-19)-APD90(NumCLs_with_wedge-19))
+	Variable DI42_short_short = (CL(NumCLs_with_wedge-20)-APD90(NumCLs_with_wedge-20))
+	Variable DI41_long_short = (CL(NumCLs_with_wedge-21)-APD90(NumCLs_with_wedge-21))
+
+
+	Variable Pc_sarc_60_long_long = (delta_sarc(NumCLs_with_wedge-2) / dia_sarc(NumCLs_with_wedge-2)) *100	 				//Does the same for % sarcomere change
+	Variable Pc_sarc_59_short_long = (delta_sarc(NumCLs_with_wedge-3) / dia_sarc(NumCLs_with_wedge-3)) *100
+	Variable Pc_sarc_58_short_short = (delta_sarc(NumCLs_with_wedge-4) / dia_sarc(NumCLs_with_wedge-4)) *100
+	Variable Pc_sarc_57_long_short = (delta_sarc(NumCLs_with_wedge-5) / dia_sarc(NumCLs_with_wedge-5)) *100
+	Variable Pc_sarc_56_long_long = (delta_sarc(NumCLs_with_wedge-6) / dia_sarc(NumCLs_with_wedge-6)) *100
+	Variable Pc_sarc_55_short_long = (delta_sarc(NumCLs_with_wedge-7) / dia_sarc(NumCLs_with_wedge-7)) *100
+	Variable Pc_sarc_54_short_short = (delta_sarc(NumCLs_with_wedge-8) / dia_sarc(NumCLs_with_wedge-8)) *100
+	Variable Pc_sarc_53_long_short = (delta_sarc(NumCLs_with_wedge-9) / dia_sarc(NumCLs_with_wedge-9)) *100
+	Variable Pc_sarc_52_long_long = (delta_sarc(NumCLs_with_wedge-10) / dia_sarc(NumCLs_with_wedge-10)) *100
+	Variable Pc_sarc_51_short_long = (delta_sarc(NumCLs_with_wedge-11) / dia_sarc(NumCLs_with_wedge-11)) *100
+	Variable Pc_sarc_50_short_short = (delta_sarc(NumCLs_with_wedge-12) / dia_sarc(NumCLs_with_wedge-12)) *100
+	Variable Pc_sarc_49_long_short = (delta_sarc(NumCLs_with_wedge-13) / dia_sarc(NumCLs_with_wedge-13)) *100
+	Variable Pc_sarc_48_long_long = (delta_sarc(NumCLs_with_wedge-14) / dia_sarc(NumCLs_with_wedge-14)) *100
+	Variable Pc_sarc_47_short_long = (delta_sarc(NumCLs_with_wedge-15) / dia_sarc(NumCLs_with_wedge-15)) *100
+	Variable Pc_sarc_46_short_short = (delta_sarc(NumCLs_with_wedge-16) / dia_sarc(NumCLs_with_wedge-16)) *100
+	Variable Pc_sarc_45_long_short = (delta_sarc(NumCLs_with_wedge-17) / dia_sarc(NumCLs_with_wedge-17)) *100
+	Variable Pc_sarc_44_long_long = (delta_sarc(NumCLs_with_wedge-18) / dia_sarc(NumCLs_with_wedge-18)) *100
+	Variable Pc_sarc_43_short_long = (delta_sarc(NumCLs_with_wedge-19) / dia_sarc(NumCLs_with_wedge-19)) *100
+	Variable Pc_sarc_42_short_short = (delta_sarc(NumCLs_with_wedge-20) / dia_sarc(NumCLs_with_wedge-20)) *100
+	Variable Pc_sarc_41_long_short = (delta_sarc(NumCLs_with_wedge-21) / dia_sarc(NumCLs_with_wedge-21)) *100
+
+
+//Splits into constituent categories: long-short, short-short, short-long, long-long
+
+
+//Averages the DIs and prints average DI and average APD90 as well as actual and Avg % sarcomere shortening
+	
+	//LONG-SHORT
+
+	Variable AvgDI_long_short = (DI57_long_short+DI53_long_short+DI49_long_short+DI45_long_short+DI41_long_short)/5; 
+	Variable TotalAPD90_long_short = APD90(NumCLs_with_wedge-5) + APD90(NumCLs_with_wedge-9) + APD90(NumCLs_with_wedge-13) + APD90(NumCLs_with_wedge-17)+ APD90(NumCLs_with_wedge-21)
+	Variable AvgAPD90_long_short = TotalAPD90_long_short/5
+	Variable TotalCL_long_short = CL(NumCLs_with_wedge-5) + CL(NumCLs_with_wedge-9) + CL(NumCLs_with_wedge-13) + CL(NumCLs_with_wedge-17)+ CL(NumCLs_with_wedge-21)
+	Variable AvgCL_long_short = TotalCL_long_short/5
+	Variable TotalDeltSarc_long_short = delta_sarc(NumCLs_with_wedge-5) + delta_sarc(NumCLs_with_wedge-9) + delta_sarc(NumCLs_with_wedge-13) + delta_sarc(NumCLs_with_wedge-17)+ delta_sarc(NumCLs_with_wedge-21)
+	Variable AvgDeltSarc_long_short = TotalDeltSarc_long_short / 5
+	Variable Total_pc_sarc_chng_long_short = (pc_sarc_57_long_short+pc_sarc_53_long_short+pc_sarc_49_long_short+pc_sarc_45_long_short+pc_sarc_41_long_short)
+	Variable Avg_pc_sarc_chng_long_short = Total_pc_sarc_chng_long_short / 5
+	Variable Dias_long_short = (dia_sarc(NumCLs_with_wedge-5) + dia_sarc(NumCLs_with_wedge-9) + dia_sarc(NumCLs_with_wedge-13) + dia_sarc(NumCLs_with_wedge-17)+ dia_sarc(NumCLs_with_wedge-21))/5
+	Variable Sys_long_short = (sys_sarc(NumCLs_with_wedge-5) + sys_sarc(NumCLs_with_wedge-9) + sys_sarc(NumCLs_with_wedge-13) + sys_sarc(NumCLs_with_wedge-17)+ sys_sarc(NumCLs_with_wedge-21))/5
+	Variable Delta_EpiF_long_short = (delta_EpiF(NumCLs_with_wedge-5) + delta_EpiF(NumCLs_with_wedge-9) + delta_EpiF(NumCLs_with_wedge-13) + delta_EpiF(NumCLs_with_wedge-17)+ delta_EpiF(NumCLs_with_wedge-21))/5
+	Variable EpiF_perc_change_long_short = (EpiF_perc_change(NumCLs_with_wedge-5) + EpiF_perc_change(NumCLs_with_wedge-9) + EpiF_perc_change(NumCLs_with_wedge-13) + EpiF_perc_change(NumCLs_with_wedge-17)+ EpiF_perc_change(NumCLs_with_wedge-21))/5
+	Variable EpiF_dias_long_short = (dia_EpiF(NumCLs_with_wedge-5) + dia_EpiF(NumCLs_with_wedge-9) + dia_EpiF(NumCLs_with_wedge-13) + dia_EpiF(NumCLs_with_wedge-17)+ dia_EpiF(NumCLs_with_wedge-21))/5
+	Variable EpiF_sys_long_short = (sys_EpiF(NumCLs_with_wedge-5) + sys_EpiF(NumCLs_with_wedge-9) + sys_EpiF(NumCLs_with_wedge-13) + sys_EpiF(NumCLs_with_wedge-17)+ sys_EpiF(NumCLs_with_wedge-21))/5
+	Variable Sarc_dif_dia_long_short = (Sarc_dif_dia(NumCLs_with_wedge-5) + Sarc_dif_dia(NumCLs_with_wedge-9) + Sarc_dif_dia(NumCLs_with_wedge-13) + Sarc_dif_dia(NumCLs_with_wedge-17)+ Sarc_dif_dia(NumCLs_with_wedge-21))/5
+	Variable Sarc_dif_sys_long_short = (Sarc_dif_sys(NumCLs_with_wedge-5) + Sarc_dif_sys(NumCLs_with_wedge-9) + Sarc_dif_sys(NumCLs_with_wedge-13) + Sarc_dif_sys(NumCLs_with_wedge-17)+ Sarc_dif_sys(NumCLs_with_wedge-21))/5
+	Variable EpiF_dif_dia_long_short = (EpiF_dif_dia(NumCLs_with_wedge-5) + EpiF_dif_dia(NumCLs_with_wedge-9) + EpiF_dif_dia(NumCLs_with_wedge-13) + EpiF_dif_dia(NumCLs_with_wedge-17)+ EpiF_dif_dia(NumCLs_with_wedge-21))/5
+	Variable EpiF_dif_sys_long_short = (EpiF_dif_sys(NumCLs_with_wedge-5) + EpiF_dif_sys(NumCLs_with_wedge-9) + EpiF_dif_sys(NumCLs_with_wedge-13) + EpiF_dif_sys(NumCLs_with_wedge-17)+ EpiF_dif_sys(NumCLs_with_wedge-21))/5
+
+	//SHORT-SHORT
+
+	Variable AvgDI_short_short = (DI58_short_short+DI54_short_short+DI50_short_short+DI46_short_short+DI42_short_short)/5; 
+	Variable TotalAPD90_short_short = APD90(NumCLs_with_wedge-4) + APD90(NumCLs_with_wedge-8) + APD90(NumCLs_with_wedge-12) + APD90(NumCLs_with_wedge-16)+ APD90(NumCLs_with_wedge-20)
+	Variable AvgAPD90_short_short = TotalAPD90_short_short/5
+	Variable TotalCL_short_short = CL(NumCLs_with_wedge-4) + CL(NumCLs_with_wedge-8) + CL(NumCLs_with_wedge-12) + CL(NumCLs_with_wedge-16)+ CL(NumCLs_with_wedge-20)
+	Variable AvgCL_short_short = TotalCL_short_short/5
+	Variable TotalDeltSarc_short_short = delta_sarc(NumCLs_with_wedge-4) + delta_sarc(NumCLs_with_wedge-8) + delta_sarc(NumCLs_with_wedge-12) + delta_sarc(NumCLs_with_wedge-16)+ delta_sarc(NumCLs_with_wedge-20)
+	Variable AvgDeltSarc_short_short = TotalDeltSarc_short_short / 5
+	Variable Total_pc_sarc_chng_short_short = pc_sarc_58_short_short + pc_sarc_54_short_short + pc_sarc_50_short_short + pc_sarc_46_short_short + pc_sarc_42_short_short
+	Variable Avg_pc_sarc_chng_short_short = Total_pc_sarc_chng_short_short / 5
+	Variable Dias_short_short = (dia_sarc(NumCLs_with_wedge-4) + dia_sarc(NumCLs_with_wedge-8) + dia_sarc(NumCLs_with_wedge-12) + dia_sarc(NumCLs_with_wedge-16)+ dia_sarc(NumCLs_with_wedge-20))/5
+	Variable Sys_short_short = (sys_sarc(NumCLs_with_wedge-4) + sys_sarc(NumCLs_with_wedge-8) + sys_sarc(NumCLs_with_wedge-12) + sys_sarc(NumCLs_with_wedge-16)+ sys_sarc(NumCLs_with_wedge-20))/5
+	Variable Delta_EpiF_short_short = (Delta_EpiF(NumCLs_with_wedge-4) + Delta_EpiF(NumCLs_with_wedge-8) + Delta_EpiF(NumCLs_with_wedge-12) + Delta_EpiF(NumCLs_with_wedge-16)+ Delta_EpiF(NumCLs_with_wedge-20))/5
+	Variable EpiF_perc_change_short_short = (EpiF_perc_change(NumCLs_with_wedge-4) + EpiF_perc_change(NumCLs_with_wedge-8) + EpiF_perc_change(NumCLs_with_wedge-12) + EpiF_perc_change(NumCLs_with_wedge-16)+ EpiF_perc_change(NumCLs_with_wedge-20))/5
+	Variable EpiF_dias_short_short = (dia_EpiF(NumCLs_with_wedge-4) + dia_EpiF(NumCLs_with_wedge-8) + dia_EpiF(NumCLs_with_wedge-12) + dia_EpiF(NumCLs_with_wedge-16)+ dia_EpiF(NumCLs_with_wedge-20))/5
+	Variable EpiF_sys_short_short = (sys_EpiF(NumCLs_with_wedge-4) + sys_EpiF(NumCLs_with_wedge-8) + sys_EpiF(NumCLs_with_wedge-12) + sys_EpiF(NumCLs_with_wedge-16)+ sys_EpiF(NumCLs_with_wedge-20))/5
+	Variable Sarc_dif_dia_short_short = (Sarc_dif_dia(NumCLs_with_wedge-4) + Sarc_dif_dia(NumCLs_with_wedge-8) + Sarc_dif_dia(NumCLs_with_wedge-12) + Sarc_dif_dia(NumCLs_with_wedge-16)+ Sarc_dif_dia(NumCLs_with_wedge-20))/5
+	Variable Sarc_dif_sys_short_short = (Sarc_dif_sys(NumCLs_with_wedge-4) + Sarc_dif_sys(NumCLs_with_wedge-8) + Sarc_dif_sys(NumCLs_with_wedge-12) + Sarc_dif_sys(NumCLs_with_wedge-16)+ Sarc_dif_sys(NumCLs_with_wedge-20))/5
+	Variable EpiF_dif_dia_short_short = (EpiF_dif_dia(NumCLs_with_wedge-4) + EpiF_dif_dia(NumCLs_with_wedge-8) + EpiF_dif_dia(NumCLs_with_wedge-12) + EpiF_dif_dia(NumCLs_with_wedge-16)+ EpiF_dif_dia(NumCLs_with_wedge-20))/5
+	Variable EpiF_dif_sys_short_short = (EpiF_dif_sys(NumCLs_with_wedge-4) + EpiF_dif_sys(NumCLs_with_wedge-8) + EpiF_dif_sys(NumCLs_with_wedge-12) + EpiF_dif_sys(NumCLs_with_wedge-16)+ EpiF_dif_sys(NumCLs_with_wedge-20))/5
+
+	//SHORT-LONG
+
+	Variable AvgDI_short_long = (DI59_short_long+DI55_short_long+DI51_short_long+DI47_short_long+DI43_short_long)/5; 
+	Variable TotalAPD90_short_long = APD90(NumCLs_with_wedge-3) + APD90(NumCLs_with_wedge-7) + APD90(NumCLs_with_wedge-11) + APD90(NumCLs_with_wedge-15)+ APD90(NumCLs_with_wedge-19)
+	Variable AvgAPD90_short_long = TotalAPD90_short_long/5
+	Variable TotalCL_short_long = CL(NumCLs_with_wedge-3) + CL(NumCLs_with_wedge-7) + CL(NumCLs_with_wedge-11) + CL(NumCLs_with_wedge-15)+ CL(NumCLs_with_wedge-19)
+	Variable AvgCL_short_long = TotalCL_short_long/5
+	Variable TotalDeltSarc_short_long = delta_sarc(NumCLs_with_wedge-3) + delta_sarc(NumCLs_with_wedge-7) + delta_sarc(NumCLs_with_wedge-11) + delta_sarc(NumCLs_with_wedge-15)+ delta_sarc(NumCLs_with_wedge-19)
+	Variable AvgDeltSarc_short_long = TotalDeltSarc_short_long / 5
+	Variable Total_pc_sarc_chng_short_long = pc_sarc_59_short_long + pc_sarc_55_short_long + pc_sarc_51_short_long + pc_sarc_47_short_long + pc_sarc_43_short_long
+	Variable Avg_pc_sarc_chng_short_long = Total_pc_sarc_chng_short_long / 5
+	Variable Dias_short_long = (dia_sarc(NumCLs_with_wedge-3) + dia_sarc(NumCLs_with_wedge-7) + dia_sarc(NumCLs_with_wedge-11) + dia_sarc(NumCLs_with_wedge-15)+ dia_sarc(NumCLs_with_wedge-19))/5
+	Variable Sys_short_long = (sys_sarc(NumCLs_with_wedge-3) + sys_sarc(NumCLs_with_wedge-7) + sys_sarc(NumCLs_with_wedge-11) + sys_sarc(NumCLs_with_wedge-15)+ sys_sarc(NumCLs_with_wedge-19))/5
+	Variable Delta_EpiF_short_long = (Delta_EpiF(NumCLs_with_wedge-3) + Delta_EpiF(NumCLs_with_wedge-7) + Delta_EpiF(NumCLs_with_wedge-11) + Delta_EpiF(NumCLs_with_wedge-15)+ Delta_EpiF(NumCLs_with_wedge-19))/5
+	Variable EpiF_perc_change_short_long = (EpiF_perc_change(NumCLs_with_wedge-3) + EpiF_perc_change(NumCLs_with_wedge-7) + EpiF_perc_change(NumCLs_with_wedge-11) + EpiF_perc_change(NumCLs_with_wedge-15)+ EpiF_perc_change(NumCLs_with_wedge-19))/5
+	Variable EpiF_dias_short_long = (dia_EpiF(NumCLs_with_wedge-3) + dia_EpiF(NumCLs_with_wedge-7) + dia_EpiF(NumCLs_with_wedge-11) + dia_EpiF(NumCLs_with_wedge-15)+ dia_EpiF(NumCLs_with_wedge-19))/5
+	Variable EpiF_sys_short_long = (sys_EpiF(NumCLs_with_wedge-3) + sys_EpiF(NumCLs_with_wedge-7) + sys_EpiF(NumCLs_with_wedge-11) + sys_EpiF(NumCLs_with_wedge-15)+ sys_EpiF(NumCLs_with_wedge-19))/5
+	Variable Sarc_dif_dia_short_long = (Sarc_dif_dia(NumCLs_with_wedge-3) + Sarc_dif_dia(NumCLs_with_wedge-7) + Sarc_dif_dia(NumCLs_with_wedge-11) + Sarc_dif_dia(NumCLs_with_wedge-15)+ Sarc_dif_dia(NumCLs_with_wedge-19))/5
+	Variable Sarc_dif_sys_short_long = (Sarc_dif_sys(NumCLs_with_wedge-3) + Sarc_dif_sys(NumCLs_with_wedge-7) + Sarc_dif_sys(NumCLs_with_wedge-11) + Sarc_dif_sys(NumCLs_with_wedge-15)+ Sarc_dif_sys(NumCLs_with_wedge-19))/5
+	Variable EpiF_dif_dia_short_long = (EpiF_dif_dia(NumCLs_with_wedge-3) + EpiF_dif_dia(NumCLs_with_wedge-7) + EpiF_dif_dia(NumCLs_with_wedge-11) + EpiF_dif_dia(NumCLs_with_wedge-15)+ EpiF_dif_dia(NumCLs_with_wedge-19))/5
+	Variable EpiF_dif_sys_short_long = (EpiF_dif_sys(NumCLs_with_wedge-3) + EpiF_dif_sys(NumCLs_with_wedge-7) + EpiF_dif_sys(NumCLs_with_wedge-11) + EpiF_dif_sys(NumCLs_with_wedge-15)+ EpiF_dif_sys(NumCLs_with_wedge-19))/5
+
+	//LONG-LONG
+
+	Variable AvgDI_long_long = (DI60_long_long+DI56_long_long+DI52_long_long+DI48_long_long+DI44_long_long)/5; 
+	Variable TotalAPD90_long_long = APD90(NumCLs_with_wedge-2) + APD90(NumCLs_with_wedge-6) + APD90(NumCLs_with_wedge-10) + APD90(NumCLs_with_wedge-14)+ APD90(NumCLs_with_wedge-18)
+	Variable AvgAPD90_long_long = TotalAPD90_long_long/5
+	Variable TotalCL_long_long = CL(NumCLs_with_wedge-2) + CL(NumCLs_with_wedge-6) + CL(NumCLs_with_wedge-10) + CL(NumCLs_with_wedge-14)+ CL(NumCLs_with_wedge-18)
+	Variable AvgCL_long_long = TotalCL_long_long/5
+	Variable TotalDeltSarc_long_long = delta_sarc(NumCLs_with_wedge-2) + delta_sarc(NumCLs_with_wedge-6) + delta_sarc(NumCLs_with_wedge-10) + delta_sarc(NumCLs_with_wedge-14)+ delta_sarc(NumCLs_with_wedge-18)
+	Variable AvgDeltSarc_long_long = TotalDeltSarc_long_long / 5
+	Variable Total_pc_sarc_chng_long_long = pc_sarc_60_long_long + pc_sarc_56_long_long + pc_sarc_52_long_long + pc_sarc_48_long_long + pc_sarc_44_long_long
+	Variable Avg_pc_sarc_chng_long_long = Total_pc_sarc_chng_long_long / 5
+	Variable Dias_long_long = (dia_sarc(NumCLs_with_wedge-2) + dia_sarc(NumCLs_with_wedge-6) + dia_sarc(NumCLs_with_wedge-10) + dia_sarc(NumCLs_with_wedge-14)+ dia_sarc(NumCLs_with_wedge-18))/5
+	Variable Sys_long_long = (sys_sarc(NumCLs_with_wedge-2) + sys_sarc(NumCLs_with_wedge-6) + sys_sarc(NumCLs_with_wedge-10) + sys_sarc(NumCLs_with_wedge-14)+ sys_sarc(NumCLs_with_wedge-18))/5
+	Variable Delta_EpiF_long_long = (Delta_EpiF(NumCLs_with_wedge-2) + Delta_EpiF(NumCLs_with_wedge-6) + Delta_EpiF(NumCLs_with_wedge-10) + Delta_EpiF(NumCLs_with_wedge-14)+ Delta_EpiF(NumCLs_with_wedge-18))/5
+	Variable EpiF_perc_change_long_long = (EpiF_perc_change(NumCLs_with_wedge-2) + EpiF_perc_change(NumCLs_with_wedge-6) + EpiF_perc_change(NumCLs_with_wedge-10) + EpiF_perc_change(NumCLs_with_wedge-14)+ EpiF_perc_change(NumCLs_with_wedge-18))/5
+	Variable EpiF_dias_long_long = (dia_EpiF(NumCLs_with_wedge-2) + dia_EpiF(NumCLs_with_wedge-6) + dia_EpiF(NumCLs_with_wedge-10) + dia_EpiF(NumCLs_with_wedge-14)+ dia_EpiF(NumCLs_with_wedge-18))/5
+	Variable EpiF_sys_long_long = (sys_EpiF(NumCLs_with_wedge-2) + sys_EpiF(NumCLs_with_wedge-6) + sys_EpiF(NumCLs_with_wedge-10) + sys_EpiF(NumCLs_with_wedge-14)+ sys_EpiF(NumCLs_with_wedge-18))/5
+	Variable Sarc_dif_dia_long_long = (Sarc_dif_dia(NumCLs_with_wedge-2) + Sarc_dif_dia(NumCLs_with_wedge-6) + Sarc_dif_dia(NumCLs_with_wedge-10) + Sarc_dif_dia(NumCLs_with_wedge-14)+ Sarc_dif_dia(NumCLs_with_wedge-18))/5
+	Variable Sarc_dif_sys_long_long = (Sarc_dif_sys(NumCLs_with_wedge-2) + Sarc_dif_sys(NumCLs_with_wedge-6) + Sarc_dif_sys(NumCLs_with_wedge-10) + Sarc_dif_sys(NumCLs_with_wedge-14)+ Sarc_dif_sys(NumCLs_with_wedge-18))/5
+	Variable EpiF_dif_dia_long_long = (EpiF_dif_dia(NumCLs_with_wedge-2) + EpiF_dif_dia(NumCLs_with_wedge-6) + EpiF_dif_dia(NumCLs_with_wedge-10) + EpiF_dif_dia(NumCLs_with_wedge-14)+ EpiF_dif_dia(NumCLs_with_wedge-18))/5
+	Variable EpiF_dif_sys_long_long = (EpiF_dif_sys(NumCLs_with_wedge-2) + EpiF_dif_sys(NumCLs_with_wedge-6) + EpiF_dif_sys(NumCLs_with_wedge-10) + EpiF_dif_sys(NumCLs_with_wedge-14)+ EpiF_dif_sys(NumCLs_with_wedge-18))/5
+
+print "The average LONG-SHORT CL (based on the final 12 beats) is",(AvgCL_long_short*1000),"ms"
+	make/N=1 avg_CL_LS
+	Avg_CL_LS(0) = AvgCL_long_short*1000
+print "The average LONG-SHORT DI (based on the final 12 beats) is",(AvgDI_long_short*1000),"ms"
+	make/N=1 avg_DI_LS
+	avg_DI_LS(0) = AvgDI_long_short*1000 
+print "The average LONG-SHORT APD90 (based on the final 12 beats) is",(AvgAPD90_long_short*1000),"ms"
+	make/N=1 avg_APD90_LS
+	avg_APD90_LS(0) = AvgAPD90_long_short*1000
+print "The average LONG-SHORT change in sarcomere length (based on the final 20 beats) is",AvgDeltSarc_long_short, "microns"
+	make/N=1 avg_deltsarc_LS
+	avg_deltsarc_LS(0) = AvgDeltSarc_long_short
+print "The average LONG-SHORT % change in sarcomere length (based on the final 20 beats) is",(Avg_pc_sarc_chng_long_short)
+	make/N=1 avg_pc_delt_LS
+	avg_pc_delt_LS(0) = Avg_pc_sarc_chng_long_short 
+print "The average LONG-SHORT diastolic sarcomere length is",Dias_long_short,"microns"
+	make/N=1 dias_LS
+	dias_LS(0) = Dias_long_short
+print "The average LONG-SHORT systolic sarcomere length is",Sys_long_short,"microns"
+	make/N=1 sys_LS
+	sys_LS(0) = Sys_long_short
+print "The average LONG-SHORT change in fluorescence is",Delta_EpiF_long_short,"F/F0"
+	make/N=1 delta_EpiF_LS_col
+	delta_EpiF_LS_col(0) = Delta_EpiF_long_short
+print "The average LONG-SHORT % change in fluorescence is",EpiF_perc_change_long_short,"F/F0"
+	make/N=1 EpiF_perc_change_LS_col
+	EpiF_perc_change_LS_col(0) = EpiF_perc_change_long_short 
+print "The average LONG-SHORT diastolic fluorescence F/F0 is", EpiF_dias_long_short
+	make/N=1 EpiF_dias_LS_col
+	EpiF_dias_LS_col(0) = EpiF_dias_long_short
+print "The average LONG-SHORT systolic fluorescence F/F0 is", EpiF_sys_long_short
+	make/N=1 EpiF_sys_LS_col
+	EpiF_sys_LS_col(0) = EpiF_sys_long_short
+print "The average LONG-SHORT sarcomere shortening diastolic differential value is", Sarc_dif_dia_long_short
+	make/N=1 sarc_dif_dia_LS_col
+	sarc_dif_dia_LS_col(0) = Sarc_dif_dia_long_short
+print "The average LONG-SHORT sarcomere shortening systolic differential value is", Sarc_dif_sys_long_short
+	make/N=1 sarc_dif_sys_LS_col
+	sarc_dif_sys_LS_col(0) = Sarc_dif_sys_long_short
+print "The average LONG-SHORT fluorescence diastolic differential value is", EpiF_dif_dia_long_short
+	make/N=1 EpiF_dif_dia_LS_col
+	EpiF_dif_dia_LS_col(0) = EpiF_dif_dia_long_short
+print "The average LONG-SHORT fluorescence systolic differential value is", EpiF_dif_sys_long_short
+	make/N=1 EpiF_dif_sys_LS_col
+	EpiF_dif_sys_LS_col(0) = EpiF_dif_sys_long_short
+
+print "The average SHORT-SHORT CL (based on the final 12 beats) is",(AvgCL_short_short*1000),"ms"
+	make/N=1 avg_CL_SS
+	Avg_CL_SS(0) = AvgCL_short_short*1000
+print "The average SHORT-SHORT DI (based on the final 12 beats) is",(AvgDI_short_short*1000),"ms"
+	make/N=1 avg_DI_SS
+	avg_DI_SS(0) = AvgDI_short_short*1000 
+print "The average SHORT-SHORT APD90 (based on the final 12 beats) is",(AvgAPD90_short_short*1000),"ms"
+	make/N=1 avg_APD90_SS
+	avg_APD90_SS(0) = AvgAPD90_short_short*1000
+print "The average SHORT-SHORT change in sarcomere length (based on the final 20 beats) is",AvgDeltSarc_short_short, "microns"
+	make/N=1 avg_deltsarc_SS
+	avg_deltsarc_SS(0) = AvgDeltSarc_short_short
+print "The average SHORT-SHORT % change in sarcomere length (based on the final 20 beats) is",(Avg_pc_sarc_chng_short_short)
+	make/N=1 avg_pc_delt_SS
+	avg_pc_delt_SS(0) = Avg_pc_sarc_chng_short_short 
+print "The average SHORT-SHORT diastolic sarcomere length is",Dias_short_short,"microns"
+	make/N=1 dias_SS
+	dias_SS(0) = Dias_short_short
+print "The average SHORT-SHORT systolic sarcomere length is",Sys_short_short,"microns"
+	make/N=1 sys_SS
+	sys_SS(0) = Sys_short_short
+print "The average SHORT-SHORT change in fluorescence is",Delta_EpiF_short_short,"F/F0"
+	make/N=1 delta_EpiF_SS_col
+	delta_EpiF_SS_col(0) = Delta_EpiF_short_short
+print "The average SHORT-SHORT % change in fluorescence is",EpiF_perc_change_short_short,"F/F0"
+	make/N=1 EpiF_perc_change_SS_col
+	EpiF_perc_change_SS_col(0) = EpiF_perc_change_short_short 
+print "The average SHORT-SHORT diastolic fluorescence F/F0 is", EpiF_dias_short_short
+	make/N=1 EpiF_dias_SS_col
+	EpiF_dias_SS_col(0) = EpiF_dias_short_short
+print "The average SHORT-SHORT systolic fluorescence F/F0 is", EpiF_sys_short_short
+	make/N=1 EpiF_sys_SS_col
+	EpiF_sys_SS_col(0) = EpiF_sys_short_short
+print "The average SHORT-SHORT sarcomere shortening diastolic differential value is", Sarc_dif_dia_short_short
+	make/N=1 sarc_dif_dia_SS_col
+	sarc_dif_dia_SS_col(0) = Sarc_dif_dia_short_short
+print "The average SHORT-SHORT sarcomere shortening systolic differential value is", Sarc_dif_sys_short_short
+	make/N=1 sarc_dif_sys_SS_col
+	sarc_dif_sys_SS_col(0) = Sarc_dif_sys_short_short
+print "The average SHORT-SHORT fluorescence diastolic differential value is", EpiF_dif_dia_short_short
+	make/N=1 EpiF_dif_dia_SS_col
+	EpiF_dif_dia_SS_col(0) = EpiF_dif_dia_short_short
+print "The average SHORT-SHORT fluorescence systolic differential value is", EpiF_dif_sys_short_short
+	make/N=1 EpiF_dif_sys_SS_col
+	EpiF_dif_sys_SS_col(0) = EpiF_dif_sys_short_short
+
+print "The average SHORT-LONG CL (based on the final 12 beats) is",(AvgCL_short_long*1000),"ms"
+	make/N=1 avg_CL_SL
+	Avg_CL_SL(0) = AvgCL_short_long*1000
+print "The average SHORT-LONG DI (based on the final 12 beats) is",(AvgDI_short_long*1000),"ms"
+	make/N=1 avg_DI_SL
+	avg_DI_SL(0) = AvgDI_short_long*1000 
+print "The average SHORT-LONG APD90 (based on the final 12 beats) is",(AvgAPD90_short_long*1000),"ms"
+	make/N=1 avg_APD90_SL
+	avg_APD90_SL(0) = AvgAPD90_short_long*1000
+print "The average SHORT-LONG change in sarcomere length (based on the final 20 beats) is",AvgDeltSarc_short_long, "microns"
+	make/N=1 avg_deltsarc_SL
+	avg_deltsarc_SL(0) = AvgDeltSarc_short_long
+print "The average SHORT-LONG % change in sarcomere length (based on the final 20 beats) is",(Avg_pc_sarc_chng_short_long)
+	make/N=1 avg_pc_delt_SL
+	avg_pc_delt_SL(0) = Avg_pc_sarc_chng_short_long 
+print "The average SHORT-LONG diastolic sarcomere length is",Dias_short_long,"microns"
+	make/N=1 dias_SL
+	dias_SL(0) = Dias_short_long
+print "The average SHORT-LONG systolic sarcomere length is",Sys_short_long,"microns"
+	make/N=1 sys_SL
+	sys_SL(0) = Sys_short_long
+print "The average SHORT-LONG change in fluorescence is",Delta_EpiF_short_long,"F/F0"
+	make/N=1 delta_EpiF_SL_col
+	delta_EpiF_SL_col(0) = Delta_EpiF_short_long
+print "The average SHORT-LONG % change in fluorescence is",EpiF_perc_change_short_long,"F/F0"
+	make/N=1 EpiF_perc_change_SL_col
+	EpiF_perc_change_SL_col(0) = EpiF_perc_change_short_long 
+print "The average SHORT-LONG diastolic fluorescence F/F0 is", EpiF_dias_short_long
+	make/N=1 EpiF_dias_SL_col
+	EpiF_dias_SL_col(0) = EpiF_dias_short_long
+print "The average SHORT-LONG systolic fluorescence F/F0 is", EpiF_sys_short_long
+	make/N=1 EpiF_sys_SL_col
+	EpiF_sys_SL_col(0) = EpiF_sys_short_long
+print "The average SHORT-LONG sarcomere shortening diastolic differential value is", Sarc_dif_dia_short_long
+	make/N=1 sarc_dif_dia_SL_col
+	sarc_dif_dia_SL_col(0) = Sarc_dif_dia_short_long
+print "The average SHORT-LONG sarcomere shortening systolic differential value is", Sarc_dif_sys_short_long
+	make/N=1 sarc_dif_sys_SL_col
+	sarc_dif_sys_SL_col(0) = Sarc_dif_sys_short_long
+print "The average SHORT-LONG fluorescence diastolic differential value is", EpiF_dif_dia_short_long
+	make/N=1 EpiF_dif_dia_SL_col
+	EpiF_dif_dia_SL_col(0) = EpiF_dif_dia_short_long
+print "The average SHORT-LONG fluorescence systolic differential value is", EpiF_dif_sys_short_long
+	make/N=1 EpiF_dif_sys_SL_col
+	EpiF_dif_sys_SL_col(0) = EpiF_dif_sys_short_long
+
+print "The average LONG-LONG CL (based on the final 12 beats) is",(AvgCL_long_long*1000),"ms"
+	make/N=1 avg_CL_LL
+	Avg_CL_LL(0) = AvgCL_long_long*1000
+print "The average LONG-LONG DI (based on the final 12 beats) is",(AvgDI_long_long*1000),"ms"
+	make/N=1 avg_DI_LL
+	avg_DI_LL(0) = AvgDI_long_long*1000 
+print "The average LONG-LONG APD90 (based on the final 12 beats) is",(AvgAPD90_long_long*1000),"ms"
+	make/N=1 avg_APD90_LL
+	avg_APD90_LL(0) = AvgAPD90_long_long*1000
+print "The average LONG-LONG change in sarcomere length (based on the final 20 beats) is",AvgDeltSarc_long_long, "microns"
+	make/N=1 avg_deltsarc_LL
+	avg_deltsarc_LL(0) = AvgDeltSarc_long_long
+print "The average LONG-LONG % change in sarcomere length (based on the final 20 beats) is",(Avg_pc_sarc_chng_long_long)
+	make/N=1 avg_pc_delt_LL
+	avg_pc_delt_LL(0) = Avg_pc_sarc_chng_long_long 
+print "The average LONG-LONG diastolic sarcomere length is",Dias_long_long,"microns"
+	make/N=1 dias_LL
+	dias_LL(0) = Dias_long_long
+print "The average LONG-LONG systolic sarcomere length is",Sys_long_long,"microns"
+	make/N=1 sys_LL
+	sys_LL(0) = Sys_long_long
+print "The average LONG-LONG change in fluorescence is",Delta_EpiF_long_long,"F/F0"
+	make/N=1 delta_EpiF_LL_col
+	delta_EpiF_LL_col(0) = Delta_EpiF_long_long
+print "The average LONG-LONG % change in fluorescence is",EpiF_perc_change_long_long,"F/F0"
+	make/N=1 EpiF_perc_change_LL_col
+	EpiF_perc_change_LL_col(0) = EpiF_perc_change_long_long 
+print "The average LONG-LONG diastolic fluorescence F/F0 is", EpiF_dias_long_long
+	make/N=1 EpiF_dias_LL_col
+	EpiF_dias_LL_col(0) = EpiF_dias_long_long
+print "The average LONG-LONG systolic fluorescence F/F0 is", EpiF_sys_long_long
+	make/N=1 EpiF_sys_LL_col
+	EpiF_sys_LL_col(0) = EpiF_sys_long_long
+print "The average LONG-LONG sarcomere shortening diastolic differential value is", Sarc_dif_dia_long_long
+	make/N=1 sarc_dif_dia_LL_col
+	sarc_dif_dia_LL_col(0) = Sarc_dif_dia_long_long
+print "The average LONG-LONG sarcomere shortening systolic differential value is", Sarc_dif_sys_long_long
+	make/N=1 sarc_dif_sys_LL_col
+	sarc_dif_sys_LL_col(0) = Sarc_dif_sys_long_long
+print "The average LONG-LONG fluorescence diastolic differential value is", EpiF_dif_dia_long_long
+	make/N=1 EpiF_dif_dia_LL_col
+	EpiF_dif_dia_LL_col(0) = EpiF_dif_dia_long_long
+print "The average LONG-LONG fluorescence systolic differential value is", EpiF_dif_sys_long_long
+	make/N=1 EpiF_dif_sys_LL_col
+	EpiF_dif_sys_LL_col(0) = EpiF_dif_sys_long_long
+
+
+//Create summary table for copy/pasting
+
+Edit Avg_CL_LS
+AppendToTable avg_DI_LS, avg_APD90_LS, avg_deltsarc_LS, avg_pc_delt_LS, dias_LS, sys_LS, delta_EpiF_LS_col, EpiF_perc_change_LS_col, EpiF_dias_LS_col, EpiF_sys_LS_col, sarc_dif_dia_LS_col, sarc_dif_sys_LS_col, EpiF_dif_dia_LS_col, EpiF_dif_sys_LS_col
+AppendToTable Avg_CL_SS, avg_DI_SS, avg_APD90_SS, avg_deltsarc_SS, avg_pc_delt_SS, dias_SS, sys_SS, delta_EpiF_SS_col, EpiF_perc_change_SS_col, EpiF_dias_SS_col, EpiF_sys_SS_col, sarc_dif_dia_SS_col, sarc_dif_sys_SS_col, EpiF_dif_dia_SS_col, EpiF_dif_sys_SS_col
+AppendToTable Avg_CL_SL, avg_DI_SL, avg_APD90_SL, avg_deltsarc_SL, avg_pc_delt_SL, dias_SL, sys_SL, delta_EpiF_SL_col, EpiF_perc_change_SL_col, EpiF_dias_SL_col, EpiF_sys_SL_col, sarc_dif_dia_SL_col, sarc_dif_sys_SL_col, EpiF_dif_dia_SL_col, EpiF_dif_sys_SL_col
+AppendToTable Avg_CL_LL, avg_DI_LL, avg_APD90_LL, avg_deltsarc_LL, avg_pc_delt_LL, dias_LL, sys_LL, delta_EpiF_LL_col, EpiF_perc_change_LL_col, EpiF_dias_LL_col, EpiF_sys_LL_col, sarc_dif_dia_LL_col, sarc_dif_sys_LL_col, EpiF_dif_dia_LL_col, EpiF_dif_sys_LL_col
+
+
+Edit avgCL_col
+AppendToTable avgDI_col, avgAPD_col, AvgDeltSarc_col, Avg_perc_sarc_change_col, BVR_train_col, BVR_sixty_col, AvgDiasSarc_col, AvgSysSarc_col, AvgDeltEpiF_col, AvgEpiFPercChange_col, AvgDiasEpiF_col, AvgSysEpiF_col, Avg_Dif_Sarc_dia_col, Avg_Dif_Sarc_sys_col, Avg_Dif_EpiF_dia_col, Avg_Dif_EpiF_sys_col	//Produces a table of results
+
+
+End
