@@ -1,0 +1,217 @@
+#pragma rtGlobals=3		// Use modern global access method and strict wave access.
+
+Macro S1S2_restitution()
+
+//Author's note:
+
+//Feel free to contact me for further information
+//Dr. Alexander Carpenter, 11th July 2022		carpenter.alexander@gmail.com
+
+//Define F0 here - the baseline fluorescence value for the cell
+
+	Variable F0 = 
+
+//Renames wave values to sarc, V_Voltage and I_current and opens table
+
+	Rename sarc_Sarc_Const,sarc;
+	Rename V_Vo__ge_Sc,V_voltage;
+	Rename I_Cu__nt_Sc,I_Current;
+	Rename V_480__An__nm_Sc,EpiF;
+	
+
+//Changes the wave scaling for sarc and then V-Voltage and I_Current
+
+	Variable sarc_first_value = Time_0(0)
+	Variable V_and_I_and_EpiF_first_value = Time_3(0)
+	Variable sarc_change = time_0(25)-time_0(24)
+	Variable V_and_I_and_EpiF_change = time_3(25)-time_3(24)
+	SetScale/P x sarc_first_value,sarc_change,"", sarc
+	SetScale/P x V_and_I_and_EpiF_first_value,V_and_I_and_EpiF_change,"", V_voltage,I_current,EpiF
+
+
+//Finds last sarc point and deletes 99999 points after this (closing off end of wave)
+
+	Variable last_empty_or_filled_sarc_point = numpnts(sarc) -1
+	Variable last_meaningful_sarc_point_1DP = last_empty_or_filled_sarc_point / 10
+	Variable last_meaningful_sarc_point = floor(last_meaningful_sarc_point_1DP)
+	Variable point_after_last_point = last_meaningful_sarc_point +1
+	DeletePoints point_after_last_point,999999, Time_0,sarc
+
+	Edit Time_0,sarc,Time_3,V_voltage,Time_2,I_Current,Time_5,EpiF
+
+
+//Create a graph with V on left axis, I on right axis and sarc appended on new axis on left
+
+	•Display v_voltage
+	•AppendToGraph/R I_current
+	•AppendToGraph/L=sarc sarc
+
+
+//Definition of variables and empty waves to be filled by analysis
+
+	Variable z = 0
+	
+	WaveStats I_Current
+	FindLevels/M=0.1/T=0.01 I_Current, V_avg+(1*V_sdev)
+	Make/N=(V_LevelsFound-1)/D ThresholdXs, CL, DI, CL25, CL50, RMP, PK, PK_loc, AMP, thirtyAP, sixtyAP, ninetyAP, thirtyAPLOC, sixtyAPLOC, ninetyAPLOC, APD30, APD60, APD90, dia_sarc, dia_sarc_point, sys_sarc, sys_sarc_point, delta_sarc, sarc_perc_change, dia_EpiF, dia_EpiF_point, sys_EpiF, sys_EpiF_point, delta_EpiF, EpiF_perc_change, Sarc_dif_dia, Sarc_dif_sys, EpiF_dif_dia, EpiF_dif_sys
+	
+	ThresholdXs=W_FindLevels
+    Variable NumThresh = V_LevelsFound-1
+	
+	CL(0) = 0
+	CL(V_LevelsFound-2) = 0
+	dia_sarc(0)=0; sys_sarc(0)=0; delta_sarc(0)=0
+	dia_sarc(V_LevelsFound-2)=0; sys_sarc(V_LevelsFound-2)=0; delta_sarc(V_LevelsFound-2)=0
+
+
+	dia_EpiF(0)=0; sys_EpiF(0)=0; delta_EpiF(0)=0; EpiF_perc_change(0)=0;
+	dia_EpiF(V_LevelsFound-2)=0; sys_EpiF(V_LevelsFound-2)=0; delta_EpiF(V_LevelsFound-2)=0; EpiF_perc_change(V_LevelsFound-2)=0;
+
+
+
+	Edit ThresholdXs
+	AppendToTable CL, DI, CL25, CL50, RMP, PK, PK_LOC, AMP, thirtyAP, sixtyAP, ninetyAP
+	AppendToTable thirtyAPLOC, sixtyAPLOC, ninetyAPLOC
+	AppendToTable APD30, APD60, APD90
+	AppendToTable dia_sarc, sys_sarc, dia_sarc_point, sys_sarc_point, delta_sarc, sarc_perc_change
+	AppendToTable dia_EpiF, sys_EpiF, dia_EpiF_point, sys_EpiF_point, delta_EpiF, EpiF_perc_change, Sarc_dif_dia, Sarc_dif_sys, EpiF_dif_dia, EpiF_dif_sys
+	
+	Duplicate Sarc Sarc_smth
+	AppendToGraph/L=sarc Sarc_smth
+	ModifyGraph rgb(Sarc_smth)=(0,39168,0)
+	Smooth/S=2 15, Sarc_smth
+
+//EpiF_smth both smooths the fluorescence trace and converts it to F/F0. F0 defined at top of script.
+
+	Duplicate EpiF EpiF_smth
+	EpiF_smth = EpiF[p] / F0
+	AppendToGraph/L=EpiF EpiF_smth
+	ModifyGraph rgb(EpiF_smth)=(0,39168,0)
+	Smooth/S=2 15, EpiF_smth
+	Smooth 1111, EpiF_smth		//Only if trace very noisy
+
+
+//Create a graph of smoothed sarcomere shortening and the differentials
+
+    Display Sarc_smth vs Time_0
+    ModifyGraph rgb=(0,0,0)
+    Label left "Sarcomere length (microns)";DelayUpdate
+    Label bottom "Time (s)"
+
+    Differentiate Sarc_smth/X=Time_0/D=Sarc_smth_DIF;DelayUpdate            //Produces differential analysis for sarcomere shortening
+    Display Sarc_smth_DIF vs Time_0
+    Label left "dS / dT";DelayUpdate
+    Label bottom "Time (s)"
+
+	  Display EpiF_smth vs Time_5
+    ModifyGraph rgb=(0,0,65280)
+    Label left "F/F0";DelayUpdate
+    Label bottom "Time (s)"
+
+    Differentiate EpiF_smth/X=Time_5/D=EpiF_smth_DIF;DelayUpdate            //Produces differential analysis for fluorescence, and smooths it
+    Display EpiF_smth_DIF vs Time_5
+    Label left "dF / dT";DelayUpdate
+    Label bottom "Time (s)"
+    Smooth 1111, EpiF_smth_DIF
+
+
+//Main body of macro with level finding function 
+
+do
+	CL(z+1) = ThresholdXs(z+1) - ThresholdXs(z) 
+    CL25(z+1) = (ThresholdXs(z+1) - ThresholdXs(z)) * 0.25
+	CL50(z+1) = (ThresholdXs(z+1) - ThresholdXs(z)) * 0.5
+	WaveStats/Q/R=(ThresholdXs(z), ThresholdXs(z)-0.05) V_Voltage
+	RMP(z)=V_avg
+	FindPeak/Q/R=(ThresholdXs(z),ThresholdXs(z)+0.07) V_Voltage
+	PK(z)=V_PeakVal
+	PK_LOC(z)=V_PeakLoc
+	AMP(z)=PK(z)-RMP(z)
+	thirtyAP(z) = PK(z)-(0.3*AMP(z))
+	sixtyAP(z) = PK(z)-(0.6*AMP(z))
+	ninetyAP(z) = PK(z)-(0.9*AMP(z))
+	FindLevel/Q/R=(PK_LOC(z), PK_LOC(z)+0.5) V_Voltage, thirtyAP(z) //can be adjusted 0.3-0.7 if not found
+	thirtyAPLOC(z) = V_LevelX
+	FindLevel/Q/R=(PK_LOC(z), PK_LOC(z)+0.5) V_Voltage, sixtyAP(z)
+	sixtyAPLOC(z) = V_LevelX
+	FindLevel/Q/R=(PK_LOC(z), PK_LOC(z)+0.5) V_Voltage, ninetyAP(z)
+	ninetyAPLOC(z) = V_LevelX
+	APD30(z) = thirtyAPLOC(z)-PK_LOC(z)
+	APD60(z) = sixtyAPLOC(z)-PK_LOC(z)
+	APD90(z) = ninetyAPLOC(z)-PK_LOC(z)
+    DI(z+1) = CL(z+1)-APD90(z)
+
+
+    //This next bit of code looks for the highest and lowest peaks for diastolic and systolic sarcomere length, using wavestats - previously findpeak, deprecated to avoid over-smoothing and loss of resolution
+		
+    Wavestats/Q/R=(ThresholdXs(z)-CL25(z+1), ThresholdXs(z)+CL25(z+1)) Sarc_Smth 
+        
+        dia_sarc(z)=V_max
+        dia_sarc_point(z)=x2pnt(sarc_smth,V_maxLoc)
+
+    Wavestats/Q/R=(ThresholdXs(z), ThresholdXs(z+1)) Sarc_Smth 
+
+        sys_sarc(z)=V_min
+        sys_sarc_point(z)=x2pnt(sarc_smth,V_minLoc)
+    
+	delta_sarc(z)=dia_sarc(z)-sys_sarc(z)
+	sarc_perc_change(z)=(delta_sarc(z)/dia_sarc(z)) *100
+
+    Wavestats/Q/R=(ThresholdXs(z)-CL25(z+1), ThresholdXs(z)+CL25(z+1)) Sarc_smth_DIF      //Finds the peak and minimum values for the differential (rate of change)
+        
+        Sarc_dif_dia(z)=V_max
+
+    Wavestats/Q/R=(ThresholdXs(z), ThresholdXs(z+1)) Sarc_smth_DIF
+
+        Sarc_dif_sys(z)=V_min    
+
+	    Wavestats/Q/R=(ThresholdXs(z)-CL50(z+1), ThresholdXs(z)+CL50(z+1)) EpiF_Smth
+        dia_EpiF(z)=V_min
+		dia_EpiF_point(z)=x2pnt(EpiF_smth,V_minLoc)                 //Locations are exported for subsequent use in curve-fitting
+  
+    Wavestats/Q/R=(ThresholdXs(z), ThresholdXs(z+1)) EpiF_smth
+        sys_EpiF(z)=V_max
+		sys_EpiF_point(z)=x2pnt(EpiF_smth,V_maxLoc)
+
+	delta_EpiF(z)=sys_EpiF(z)-dia_EpiF(z)
+	EpiF_perc_change(z)=(delta_EpiF(z)/dia_EpiF(z)) *100
+
+    Wavestats/Q/R=(ThresholdXs(z)-CL50(z+1), ThresholdXs(z)+CL50(z+1)) EpiF_smth_DIF
+        EpiF_dif_dia(z)=V_min
+        
+    Wavestats/Q/R=(ThresholdXs(z), ThresholdXs(z+1)) EpiF_smth_DIF
+        EpiF_dif_sys(z)=V_max
+
+	z+=1
+
+while(z<(V_LevelsFound-1))
+
+//Creates diary plot of APD90 and sarcomere shortening 
+
+Display APD90
+   AppendToGraph/R delta_sarc
+   Legend/C/N=text0/F=0/A=MC
+
+   ModifyGraph rgb(delta_sarc)=(0,0,0)
+   Label left "APD\\B90\\M(s)"
+   Label right "Change in sarcomere length (microns)"
+   Label bottom "Beat number (first 20 are 1Hz train)"
+   Legend/C/N=text0/J/A=RT/X=4.40/Y=10.94
+   AppendToGraph/R=delta_EpiF delta_EpiF
+   ModifyGraph rgb(delta_EpiF)=(0,0,65280)
+   Label right "Red: Change in sarcomere length (microns)\rBlue: Change in fluorescence (delta F/F0)"
+
+
+//Generating average data summaries
+
+//Duplicate/R=[10,*] DI, S2_DI		
+//Duplicate/R=[10,*] APD90, S2_APD						//Calculates the average diastolic and systolic sarcomere shortening values for final 20 beats
+//Duplicate/R=[10,*] sarc_perc_change, S2_sarcperc
+//Duplicate/R=[10,*] Sarc_dif_sys, S2_sarc_dif_sys
+						
+
+
+
+//Create summary table for copy/pasting
+
+End
